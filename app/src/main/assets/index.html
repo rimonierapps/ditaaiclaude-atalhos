@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#11161d">
+<title>DitaAíClaude (atalhos)</title>
+<style>
+  :root {
+    --fundo: #11161d; --cartao: #1b2330; --borda: #2a3546; --texto: #e8edf3;
+    --fraco: #8d9bb0; --laranja: #e07a3f; --laranja2: #ff9a5c; --verde: #3fb27f;
+    --vermelho: #e0524f; --azul: #4f8fe0;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; background: var(--fundo); color: var(--texto);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+    overscroll-behavior: none; }
+  body { display: flex; flex-direction: column; padding: 10px 10px 14px; gap: 10px; }
+
+  header { display: flex; align-items: center; gap: 8px; }
+  #luz { width: 12px; height: 12px; border-radius: 50%; background: var(--vermelho); flex: none; }
+  #luz.ok { background: var(--verde); }
+  #status { flex: 1; font-size: 14px; color: var(--fraco); white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis; }
+  #btnConf { background: none; border: 1px solid var(--borda); color: var(--texto);
+    border-radius: 10px; padding: 6px 12px; font-size: 18px; }
+
+  #topo { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; align-content: start;
+    flex: 1; overflow-y: auto; }
+  .b { border: 1px solid var(--borda); background: var(--cartao); color: var(--texto);
+    border-radius: 14px; font-size: 16px; font-weight: 600; padding: 10px 6px;
+    min-height: 64px; touch-action: none; transition: transform .06s, background .06s; }
+  .b small { display: block; font-size: 11px; font-weight: 400; color: var(--fraco); margin-top: 3px; }
+  .b.ativo { transform: scale(.96); background: #2b3a50; }
+  .b.erro { border-color: var(--vermelho); }
+
+  #baixo { display: grid; grid-template-columns: 1fr 1fr 1.35fr; gap: 8px; height: 38vh; min-height: 220px; }
+  #enter { background: #1d3a2e; border-color: #2c5a45; font-size: 20px; }
+  #ditado { display: grid; grid-template-rows: 1fr 1fr; gap: 8px; }
+  #ditado .b { background: #1c2c44; border-color: #2d4466; }
+  #principal { background: linear-gradient(160deg, var(--laranja2), var(--laranja));
+    border: none; color: #fff; font-size: 19px; border-radius: 20px; }
+  #principal small { color: #ffe9dc; }
+  #principal.ativo { background: var(--vermelho); transform: scale(.97); }
+
+  /* configuração */
+  #conf { position: fixed; inset: 0; background: rgba(5,8,12,.94); display: none;
+    flex-direction: column; padding: 20px; gap: 12px; overflow-y: auto; -webkit-user-select: text; user-select: text; }
+  #conf.aberta { display: flex; }
+  #conf h2 { margin: 0 0 4px; }
+  #conf label { font-size: 14px; color: var(--fraco); }
+  #conf input { width: 100%; font-size: 20px; padding: 10px; border-radius: 10px;
+    border: 1px solid var(--borda); background: var(--cartao); color: var(--texto); }
+  .linha { display: flex; gap: 8px; }
+  .linha button, .acao { flex: 1; font-size: 16px; padding: 12px; border-radius: 10px;
+    border: 1px solid var(--borda); background: var(--cartao); color: var(--texto); }
+  .acao.forte { background: var(--azul); border: none; }
+  #achados button { display: block; width: 100%; margin-top: 6px; text-align: left; }
+  #msgConf { color: var(--fraco); font-size: 14px; min-height: 18px; }
+  .dica { font-size: 13px; color: var(--fraco); line-height: 1.4; }
+</style>
+</head>
+<body>
+<header>
+  <div id="luz"></div>
+  <div id="status">Desconectado</div>
+  <button id="btnConf" aria-label="Configurar">⚙</button>
+</header>
+
+<div id="topo"></div>
+
+<div id="baixo">
+  <button class="b" id="enter" data-id="enter">⏎<small>Enter</small></button>
+  <div id="ditado"></div>
+  <button class="b" id="principal" data-id="caps">🎙️ Segurar<small>solte para enviar</small></button>
+</div>
+
+<div id="conf">
+  <h2>Conectar ao PC</h2>
+  <div class="dica">Abra o <b>servidor.py</b> no PC. Ele mostra o endereço e o PIN.
+    Celular e PC no mesmo Wi-Fi.</div>
+  <label for="ip">Endereço do PC (IP ou IP:porta)</label>
+  <input id="ip" inputmode="url" placeholder="192.168.0.10">
+  <label for="pin">PIN</label>
+  <input id="pin" inputmode="numeric" placeholder="6 dígitos">
+  <button class="acao" id="procurar">🔎 Procurar o PC na rede</button>
+  <div id="achados"></div>
+  <div id="msgConf"></div>
+  <div class="linha">
+    <button id="cancelar">Fechar</button>
+    <button id="salvar" class="acao forte">Salvar e conectar</button>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  const PORTA = 8790;
+  const NATIVO = window.Android || null;          // ponte do app Android
+  const NO_PC = location.protocol.startsWith("http"); // página servida pelo próprio PC
+
+  const BOTOES_PADRAO = [
+    { id: "caps", rotulo: "Segurar para falar", modo: "segurar", lugar: "principal", teclas: "caps_lock" },
+    { id: "ditado_ini", rotulo: "Iniciar ditado", modo: "tocar", lugar: "ditado", teclas: "cmd+h" },
+    { id: "ditado_fim", rotulo: "Parar ditado", modo: "tocar", lugar: "ditado", teclas: "cmd+h" },
+    { id: "enter", rotulo: "Enter", modo: "tocar", lugar: "enter", teclas: "enter" },
+    { id: "abrir", rotulo: "Abrir Claude", modo: "tocar", lugar: "topo", teclas: "ctrl+alt+space" },
+    { id: "voz_claude", rotulo: "Voz do Claude", modo: "tocar", lugar: "topo", teclas: "ctrl_l+ctrl_r" },
+    { id: "esc", rotulo: "Esc", modo: "tocar", lugar: "topo", teclas: "esc" },
+    { id: "apagar_palavra", rotulo: "Apagar palavra", modo: "tocar", lugar: "topo", teclas: "ctrl+backspace" },
+    { id: "desfazer", rotulo: "Desfazer", modo: "tocar", lugar: "topo", teclas: "ctrl+z" },
+    { id: "nova_linha", rotulo: "Nova linha", modo: "tocar", lugar: "topo", teclas: "shift+enter" }
+  ];
+
+  // ---------- armazenamento ----------
+  function ler(k) { try { return localStorage.getItem(k) || ""; } catch (e) { return ""; } }
+  function gravar(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+
+  let endereco = ler("sef_ip");
+  let pin = ler("sef_pin");
+  if (NO_PC && !endereco) endereco = location.host;
+
+  function base() {
+    if (!endereco) return "";
+    const e = endereco.includes(":") ? endereco : endereco + ":" + PORTA;
+    return "http://" + e;
+  }
+
+  // ---------- utilidades ----------
+  const $ = (s) => document.querySelector(s);
+  function vibrar(ms) {
+    try { if (NATIVO && NATIVO.vibrar) { NATIVO.vibrar(ms); return; } } catch (e) {}
+    try { navigator.vibrate && navigator.vibrate(ms); } catch (e) {}
+  }
+  function status(txt, ok) {
+    $("#status").textContent = txt;
+    $("#luz").classList.toggle("ok", !!ok);
+  }
+  async function post(caminho, corpo, tempo) {
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), tempo || 2500);
+    try {
+      // text/plain evita a "pré-consulta" CORS e deixa tudo mais rápido
+      const r = await fetch(base() + caminho, {
+        method: "POST", body: JSON.stringify(corpo),
+        headers: { "Content-Type": "text/plain" }, signal: ctl.signal
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.erro || j.msg || ("HTTP " + r.status));
+      return j;
+    } finally { clearTimeout(t); }
+  }
+  function acao(id, tipo) {
+    return post("/acao", { pin: pin, id: id, tipo: tipo }).then(
+      () => { status("Conectado" + (nomePc ? " · " + nomePc : ""), true); return true; },
+      (e) => { status("Falhou: " + e.message, false); return false; });
+  }
+
+  // ---------- montar botões ----------
+  let nomePc = "";
+  function montar(botoes) {
+    const topo = $("#topo"), ditado = $("#ditado");
+    topo.innerHTML = ""; ditado.innerHTML = "";
+    botoes.forEach((b) => {
+      let el;
+      if (b.lugar === "principal") { el = $("#principal"); }
+      else if (b.lugar === "enter") { el = $("#enter"); }
+      else {
+        el = document.createElement("button");
+        el.className = "b";
+        el.innerHTML = esc(b.rotulo) + "<small>" + esc(bonito(b.teclas)) + "</small>";
+        (b.lugar === "ditado" ? ditado : topo).appendChild(el);
+      }
+      el.dataset.id = b.id;
+      el.dataset.modo = b.modo;
+      ligar(el);
+    });
+  }
+  function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+  function bonito(t) {
+    const m = { cmd: "Win", ctrl: "Ctrl", ctrl_l: "Ctrl esq", ctrl_r: "Ctrl dir", alt: "Alt",
+      shift: "Shift", space: "Espaço", enter: "Enter", esc: "Esc", backspace: "⌫", caps_lock: "Caps" };
+    return String(t || "").split("+").map((p) => m[p] || p.toUpperCase()).join(" + ");
+  }
+
+  // ---------- toque: tocar e segurar ----------
+  function ligar(el) {
+    if (el._ligado) return;
+    el._ligado = true;
+    let vivo = null, preso = false;
+
+    el.addEventListener("contextmenu", (e) => e.preventDefault());
+    el.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      try { el.setPointerCapture(e.pointerId); } catch (x) {}
+      el.classList.add("ativo");
+      vibrar(25);
+      if (el.dataset.modo === "segurar") {
+        preso = true;
+        acao(el.dataset.id, "apertar");
+        vivo = setInterval(() => acao(el.dataset.id, "vivo"), 700);
+      }
+    });
+    const fim = (e, cancelou) => {
+      if (!el.classList.contains("ativo")) return;
+      el.classList.remove("ativo");
+      if (el.dataset.modo === "segurar") {
+        if (!preso) return;
+        preso = false;
+        clearInterval(vivo);
+        vibrar(40);
+        acao(el.dataset.id, "soltar");
+      } else if (!cancelou) {
+        acao(el.dataset.id, "tocar").then((ok) => {
+          if (!ok) { el.classList.add("erro"); setTimeout(() => el.classList.remove("erro"), 800); }
+        });
+      }
+    };
+    el.addEventListener("pointerup", (e) => fim(e, false));
+    // se o Android "roubar" o toque, solta a tecla do mesmo jeito
+    el.addEventListener("pointercancel", (e) => fim(e, true));
+    el.addEventListener("lostpointercapture", (e) => fim(e, true));
+  }
+
+  // ---------- conexão ----------
+  async function conectar() {
+    if (!endereco || !pin) { status("Toque em ⚙ para conectar ao PC", false); abrirConf(); return; }
+    status("Conectando…", false);
+    try {
+      const j = await post("/config", { pin: pin });
+      nomePc = j.pc || "";
+      montar(j.botoes && j.botoes.length ? j.botoes : BOTOES_PADRAO);
+      status("Conectado · " + nomePc, true);
+      return true;
+    } catch (e) {
+      status("Sem conexão: " + e.message, false);
+      return false;
+    }
+  }
+
+  // ---------- configuração ----------
+  function abrirConf() {
+    $("#ip").value = endereco; $("#pin").value = pin;
+    $("#msgConf").textContent = ""; $("#achados").innerHTML = "";
+    $("#conf").classList.add("aberta");
+  }
+  $("#btnConf").onclick = abrirConf;
+  $("#cancelar").onclick = () => $("#conf").classList.remove("aberta");
+  $("#salvar").onclick = async () => {
+    endereco = $("#ip").value.trim().replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+    pin = $("#pin").value.trim();
+    gravar("sef_ip", endereco); gravar("sef_pin", pin);
+    $("#msgConf").textContent = "Testando…";
+    if (await conectar()) $("#conf").classList.remove("aberta");
+    else $("#msgConf").textContent = $("#status").textContent;
+  };
+
+  async function sondar(ip) {
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), 900);
+    try {
+      const r = await fetch("http://" + ip + ":" + PORTA + "/ping", { signal: ctl.signal });
+      const j = await r.json();
+      return j.app === "ditaaiclaude" ? j : null;
+    } catch (e) { return null; } finally { clearTimeout(t); }
+  }
+  $("#procurar").onclick = async () => {
+    let meu = "";
+    try { meu = NATIVO && NATIVO.ipLocal ? NATIVO.ipLocal() : ""; } catch (e) {}
+    if (!meu && NO_PC) meu = location.hostname;
+    if (!/^\d+\.\d+\.\d+\.\d+$/.test(meu)) {
+      $("#msgConf").textContent = "Não consegui ver o IP do celular. Digite o endereço que o PC mostra.";
+      return;
+    }
+    const prefixo = meu.split(".").slice(0, 3).join(".");
+    const lista = $("#achados");
+    lista.innerHTML = "";
+    $("#msgConf").textContent = "Procurando em " + prefixo + ".x …";
+    let achou = 0;
+    for (let ini = 1; ini < 255; ini += 64) {
+      const lote = [];
+      for (let i = ini; i < Math.min(ini + 64, 255); i++) {
+        const ip = prefixo + "." + i;
+        lote.push(sondar(ip).then((j) => {
+          if (!j) return;
+          achou++;
+          const b = document.createElement("button");
+          b.className = "acao";
+          b.textContent = "💻 " + j.pc + " — " + ip;
+          b.onclick = () => { $("#ip").value = ip; $("#pin").focus(); };
+          lista.appendChild(b);
+        }));
+      }
+      await Promise.all(lote);
+    }
+    $("#msgConf").textContent = achou ? "Toque no PC e digite o PIN." : "Nenhum PC encontrado. O servidor está aberto? O firewall liberou?";
+  };
+
+  // ---------- início ----------
+  montar(BOTOES_PADRAO);
+  conectar();
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) conectar(); });
+  window.sefReconectar = conectar;
+})();
+</script>
+</body>
+</html>
