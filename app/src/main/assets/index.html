@@ -44,21 +44,17 @@
   #principal small { color: #ffe9dc; }
   #principal.ativo { background: var(--vermelho); transform: scale(.97); }
 
-  /* configuração */
-  #conf { position: fixed; inset: 0; background: rgba(5,8,12,.94); display: none;
-    flex-direction: column; padding: 20px; gap: 12px; overflow-y: auto; -webkit-user-select: text; user-select: text; }
+  /* painel de conexão (simples) */
+  #conf { position: fixed; left: 0; right: 0; top: 0; background: #0b0f15; display: none;
+    flex-direction: column; padding: 16px; gap: 10px; border-bottom: 1px solid var(--borda); z-index: 5; }
   #conf.aberta { display: flex; }
-  #conf h2 { margin: 0 0 4px; }
-  #conf label { font-size: 14px; color: var(--fraco); }
-  #conf input { width: 100%; font-size: 20px; padding: 10px; border-radius: 10px;
+  #conf .linha { display: flex; gap: 8px; }
+  #conf input { flex: 1; min-width: 0; font-size: 18px; padding: 10px; border-radius: 10px;
+    border: 1px solid var(--borda); background: var(--cartao); color: var(--texto); -webkit-user-select: text; user-select: text; }
+  #conf button { font-size: 16px; padding: 10px 14px; border-radius: 10px;
     border: 1px solid var(--borda); background: var(--cartao); color: var(--texto); }
-  .linha { display: flex; gap: 8px; }
-  .linha button, .acao { flex: 1; font-size: 16px; padding: 12px; border-radius: 10px;
-    border: 1px solid var(--borda); background: var(--cartao); color: var(--texto); }
-  .acao.forte { background: var(--azul); border: none; }
-  #achados button { display: block; width: 100%; margin-top: 6px; text-align: left; }
-  #msgConf { color: var(--fraco); font-size: 14px; min-height: 18px; }
-  .dica { font-size: 13px; color: var(--fraco); line-height: 1.4; }
+  #conf button.forte { background: var(--azul); border: none; }
+  .dica { font-size: 13px; color: var(--fraco); }
 </style>
 </head>
 <body>
@@ -77,19 +73,14 @@
 </div>
 
 <div id="conf">
-  <h2>Conectar ao PC</h2>
-  <div class="dica">Abra o <b>servidor.py</b> no PC. Ele mostra o endereço e o PIN.
-    Celular e PC no mesmo Wi-Fi.</div>
-  <label for="ip">Endereço do PC (IP ou IP:porta)</label>
-  <input id="ip" inputmode="url" placeholder="192.168.0.10">
-  <label for="pin">PIN</label>
-  <input id="pin" inputmode="numeric" placeholder="6 dígitos">
-  <button class="acao" id="procurar">🔎 Procurar o PC na rede</button>
-  <div id="achados"></div>
-  <div id="msgConf"></div>
   <div class="linha">
-    <button id="cancelar">Fechar</button>
-    <button id="salvar" class="acao forte">Salvar e conectar</button>
+    <button id="procurar" class="forte" style="flex:1">🔎 Procurar o PC</button>
+    <button id="cancelar">✕</button>
+  </div>
+  <div class="dica">Ou digite o IP que aparece na janela do PC:</div>
+  <div class="linha">
+    <input id="ip" inputmode="decimal" placeholder="192.168.0.10">
+    <button id="salvar">OK</button>
   </div>
 </div>
 
@@ -117,9 +108,8 @@
   function ler(k) { try { return localStorage.getItem(k) || ""; } catch (e) { return ""; } }
   function gravar(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
 
-  let endereco = ler("sef_ip");
-  let pin = ler("sef_pin");
-  if (NO_PC && !endereco) endereco = location.host;
+  let endereco = NO_PC ? location.host : ler("sef_ip");
+  const pin = "";
 
   function base() {
     if (!endereco) return "";
@@ -154,7 +144,7 @@
   function acao(id, tipo) {
     return post("/acao", { pin: pin, id: id, tipo: tipo }).then(
       () => { status("Conectado" + (nomePc ? " · " + nomePc : ""), true); return true; },
-      (e) => { status("Falhou: " + e.message, false); return false; });
+      (e) => { conectado = false; status("Sem resposta do PC… tentando de novo", false); return false; });
   }
 
   // ---------- montar botões ----------
@@ -223,85 +213,72 @@
     el.addEventListener("lostpointercapture", (e) => fim(e, true));
   }
 
-  // ---------- conexão ----------
+  // ---------- conexão automática ----------
+  let conectado = false, procurando = false;
   async function conectar() {
-    if (!endereco || !pin) { status("Toque em ⚙ para conectar ao PC", false); abrirConf(); return; }
+    if (!endereco) return false;
     status("Conectando…", false);
     try {
       const j = await post("/config", { pin: pin });
       nomePc = j.pc || "";
       montar(j.botoes && j.botoes.length ? j.botoes : BOTOES_PADRAO);
+      conectado = true;
       status("Conectado · " + nomePc, true);
       return true;
     } catch (e) {
-      status("Sem conexão: " + e.message, false);
+      conectado = false;
       return false;
     }
   }
 
-  // ---------- configuração ----------
-  function abrirConf() {
-    $("#ip").value = endereco; $("#pin").value = pin;
-    $("#msgConf").textContent = ""; $("#achados").innerHTML = "";
-    $("#conf").classList.add("aberta");
-  }
-  $("#btnConf").onclick = abrirConf;
-  $("#cancelar").onclick = () => $("#conf").classList.remove("aberta");
-  $("#salvar").onclick = async () => {
-    endereco = $("#ip").value.trim().replace(/^https?:\/\//, "").replace(/\/.*$/, "");
-    pin = $("#pin").value.trim();
-    gravar("sef_ip", endereco); gravar("sef_pin", pin);
-    $("#msgConf").textContent = "Testando…";
-    if (await conectar()) $("#conf").classList.remove("aberta");
-    else $("#msgConf").textContent = $("#status").textContent;
+  // chamado pelo app Android quando ouve o PC na rede (ou acha na varredura)
+  window.sefAchouPc = function (ip, porta) {
+    const novo = ip + (porta && porta != PORTA ? ":" + porta : "");
+    if (conectado && novo === endereco) return;
+    endereco = novo;
+    gravar("sef_ip", endereco);
+    procurando = false;
+    $("#conf").classList.remove("aberta");
+    conectar();
+  };
+  window.sefFimBusca = function (achou) {
+    procurando = false;
+    if (!achou && !conectado) status("PC não encontrado. O servidor está aberto no PC? Toque em ⚙", false);
   };
 
-  async function sondar(ip) {
-    const ctl = new AbortController();
-    const t = setTimeout(() => ctl.abort(), 900);
-    try {
-      const r = await fetch("http://" + ip + ":" + PORTA + "/ping", { signal: ctl.signal });
-      const j = await r.json();
-      return j.app === "ditaaiclaude" ? j : null;
-    } catch (e) { return null; } finally { clearTimeout(t); }
+  function procurar() {
+    if (NO_PC || procurando) return;
+    procurando = true;
+    status("Procurando o PC na rede…", false);
+    try { if (NATIVO && NATIVO.procurar) { NATIVO.procurar(); return; } } catch (e) {}
+    procurando = false;
+    status("Toque em ⚙ e digite o IP do PC", false);
   }
-  $("#procurar").onclick = async () => {
-    let meu = "";
-    try { meu = NATIVO && NATIVO.ipLocal ? NATIVO.ipLocal() : ""; } catch (e) {}
-    if (!meu && NO_PC) meu = location.hostname;
-    if (!/^\d+\.\d+\.\d+\.\d+$/.test(meu)) {
-      $("#msgConf").textContent = "Não consegui ver o IP do celular. Digite o endereço que o PC mostra.";
-      return;
-    }
-    const prefixo = meu.split(".").slice(0, 3).join(".");
-    const lista = $("#achados");
-    lista.innerHTML = "";
-    $("#msgConf").textContent = "Procurando em " + prefixo + ".x …";
-    let achou = 0;
-    for (let ini = 1; ini < 255; ini += 64) {
-      const lote = [];
-      for (let i = ini; i < Math.min(ini + 64, 255); i++) {
-        const ip = prefixo + "." + i;
-        lote.push(sondar(ip).then((j) => {
-          if (!j) return;
-          achou++;
-          const b = document.createElement("button");
-          b.className = "acao";
-          b.textContent = "💻 " + j.pc + " — " + ip;
-          b.onclick = () => { $("#ip").value = ip; $("#pin").focus(); };
-          lista.appendChild(b);
-        }));
-      }
-      await Promise.all(lote);
-    }
-    $("#msgConf").textContent = achou ? "Toque no PC e digite o PIN." : "Nenhum PC encontrado. O servidor está aberto? O firewall liberou?";
+
+  async function iniciar() {
+    if (await conectar()) return;
+    procurar();
+  }
+
+  // painel ⚙
+  $("#btnConf").onclick = () => { $("#ip").value = endereco; $("#conf").classList.toggle("aberta"); };
+  $("#cancelar").onclick = () => $("#conf").classList.remove("aberta");
+  $("#procurar").onclick = () => { $("#conf").classList.remove("aberta"); procurando = false; procurar(); };
+  $("#salvar").onclick = async () => {
+    endereco = $("#ip").value.trim().replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+    gravar("sef_ip", endereco);
+    $("#conf").classList.remove("aberta");
+    if (!(await conectar())) status("Não respondeu em " + endereco + ". O servidor está aberto?", false);
   };
+
+  // se cair, tenta de novo sozinho
+  setInterval(() => { if (!conectado && !procurando) iniciar(); }, 8000);
 
   // ---------- início ----------
   montar(BOTOES_PADRAO);
-  conectar();
-  document.addEventListener("visibilitychange", () => { if (!document.hidden) conectar(); });
-  window.sefReconectar = conectar;
+  iniciar();
+  document.addEventListener("visibilitychange", () => { if (!document.hidden && !conectado) iniciar(); });
+  window.sefReconectar = () => { if (!conectado) iniciar(); };
 })();
 </script>
 </body>

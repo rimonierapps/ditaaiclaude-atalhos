@@ -10,9 +10,9 @@ Controle remoto de atalhos do Claude no PC, pelo celular Android, no mesmo Wi-Fi
 ## Como usar
 
 1. **No PC**: baixe a pasta `pc/` e dê dois cliques em `iniciar.bat` (Windows) ou rode `./iniciar.sh` (Linux X11). Precisa do Python 3.
-2. Na primeira vez o Windows pergunta sobre o firewall: marque **Redes privadas** e permita.
-3. A janela mostra o **endereço** e o **PIN**.
-4. **No celular**: instale o APK (Releases ou Telegram), toque em ⚙, em **Procurar o PC na rede**, escolha o PC e digite o PIN.
+2. Na primeira vez o Windows pede para liberar o firewall: clique em **Sim**.
+3. **No celular**: abra o app. Ele acha o PC sozinho e conecta (o PC se anuncia na rede).
+4. Se não achar, toque em ⚙ e digite o IP que aparece na janela do PC.
 
 Sem o app, também funciona no navegador do celular: abra `http://IP-do-PC:8790`.
 
@@ -36,7 +36,7 @@ Edite `pc/config.json` (criado na 1ª execução) e reinicie o servidor. O celul
 
 ## Segurança
 
-- Só aceita conexões da rede local (IPs privados) e exige o PIN.
+- Só aceita conexões da rede local (IPs privados). Para exigir PIN, ponha `"exigir_pin": true` e `"pin": "1234"` no `config.json`.
 - Se o Wi-Fi cair com o botão segurado, o PC solta a tecla sozinho em 2,5 s.
 
 ## Compilação

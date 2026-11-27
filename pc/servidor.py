@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-DitaAíClaude (atalhos) - servidor do PC (v1)
+DitaAíClaude (atalhos) - servidor do PC (v2)
 
 Recebe os toques do celular pela rede Wi-Fi e aperta as teclas no PC.
 Funciona no Windows 11 e no Linux com X11 (EndeavourOS KDE).
@@ -10,19 +10,21 @@ Uso:
     python servidor.py
 
 Na primeira execução cria o arquivo config.json ao lado deste script,
-com o PIN de acesso e a lista de botões (dá para editar à vontade).
+com a lista de botões (dá para editar à vontade).
+
+O PC se anuncia na rede Wi-Fi a cada 1,5 s (UDP, porta 8791) e o app
+do celular o encontra sozinho. Só aceita conexões da rede local.
 """
 import ipaddress
 import json
 import os
-import random
 import socket
 import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSAO = "1"
+VERSAO = "2"
 PASTA = os.path.dirname(os.path.abspath(__file__))
 ARQ_CONFIG = os.path.join(PASTA, "config.json")
 ARQ_PAGINA = os.path.join(PASTA, "index.html")
@@ -30,6 +32,7 @@ ARQ_PAGINA = os.path.join(PASTA, "index.html")
 # Tempo máximo sem "sinal de vida" do celular enquanto um botão está
 # segurado. Se o Wi-Fi cair no meio, a tecla é solta sozinha.
 LIMITE_SEGURAR = 2.5
+PORTA_ANUNCIO = 8791
 
 BOTOES_PADRAO = [
     # ---- linha de baixo (fixa) ----
@@ -65,9 +68,6 @@ def carregar_config():
     else:
         cfg = {}
     alterou = False
-    if "pin" not in cfg:
-        cfg["pin"] = "%06d" % random.SystemRandom().randint(0, 999999)
-        alterou = True
     if "porta" not in cfg:
         cfg["porta"] = 8790
         alterou = True
@@ -217,6 +217,25 @@ def ip_local():
         s.close()
 
 
+def anunciar(porta):
+    """Grita na rede 'estou aqui' para o celular achar o PC sozinho."""
+    nome = socket.gethostname()
+    msg = json.dumps({"app": "ditaaiclaude", "porta": porta, "pc": nome}).encode()
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+    while True:
+        ip = ip_local()
+        destinos = {"255.255.255.255"}
+        if ip.count(".") == 3 and not ip.startswith("127."):
+            destinos.add(ip.rsplit(".", 1)[0] + ".255")
+        for d in destinos:
+            try:
+                s.sendto(msg, (d, PORTA_ANUNCIO))
+            except OSError:
+                pass
+        time.sleep(1.5)
+
+
 def criar_handler(estado):
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *a):
@@ -270,7 +289,7 @@ def criar_handler(estado):
             except (ValueError, json.JSONDecodeError):
                 self._enviar(400, {"erro": "json inválido"})
                 return
-            if str(dados.get("pin")) != str(estado.cfg["pin"]):
+            if estado.cfg.get("exigir_pin") and str(dados.get("pin")) != str(estado.cfg.get("pin")):
                 self._enviar(401, {"erro": "PIN errado"})
                 return
             if self.path == "/config":
@@ -291,11 +310,12 @@ def main():
     falso = "--teste" in sys.argv
     estado = Estado(cfg, Teclado(falso=falso))
     threading.Thread(target=estado.vigiar, daemon=True).start()
+    threading.Thread(target=anunciar, args=(cfg["porta"],), daemon=True).start()
     srv = ThreadingHTTPServer(("0.0.0.0", cfg["porta"]), criar_handler(estado))
     print("=" * 52)
     print(" DitaAíClaude (atalhos) v%s - servidor do PC" % VERSAO)
     print(" Endereço : %s:%d" % (ip_local(), cfg["porta"]))
-    print(" PIN      : %s" % cfg["pin"])
+    print(" Abra o app no celular: ele acha este PC sozinho.")
     print(" (celular e PC precisam estar no mesmo Wi-Fi)")
     print("=" * 52)
     try:
